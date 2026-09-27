@@ -4,12 +4,12 @@ import { isDevMode } from '@angular/core';
 import { themeReducer, themeState } from './app/store/themeStore/theme.reducer';
 export interface AppState{
   counter: countState,
-  themeFeature: themeState
+  theme: themeState
 }
 
 export const reducers : ActionReducerMap<AppState> = {
   counter: counterReducer,
-  themeFeature: themeReducer
+  theme: themeReducer
 };
 
 export const metaReducers: MetaReducer<AppState>[]= []; 
