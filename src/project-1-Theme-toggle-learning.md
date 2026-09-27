@@ -95,3 +95,53 @@ If `provideStore({ theme: themeReducer })` registers a key, but `createFeatureSe
 - **Mitigation used in bigger codebases:** a shared `FEATURE_KEY` constant referenced by both `provideStore` and `createFeatureSelector`, so a typo only needs fixing in one place. (`createFeature`, covered later, solves this properly by deriving everything from one feature definition.)
 
 ---
+
+## 7b. Flow: how `createFeatureSelector('theme')` actually connects to dispatched state
+
+```mermaid
+flowchart TD
+    A["Component<br/>dispatch(themeActions.themeToggle())"] --> B["Store<br/>runs every reducer in the map"]
+    B --> C["New state tree<br/>{ counter: {...}, theme: { theme: true } }"]
+    C --> D["createFeatureSelector('theme')<br/>reads state['theme'] by that exact key"]
+    D --> E["Component re-renders<br/>new reference in, selector recomputes"]
+```
+
+**The key insight: there is no real "connection" enforced by the type system.**
+
+- `provideStore({ theme: themeReducer })` decides what key the reducer's output lands under in the live state tree.
+- `createFeatureSelector<themeState>('theme')` is a _completely separate_ piece of code that reads `state['theme']` by that literal string — it has no knowledge of how `provideStore` was configured. It just does a plain object-key lookup.
+- TypeScript checks the _shape_ you claim (`themeState`), but never checks that the string `'theme'` used here actually matches the string used in `provideStore`. Two independent string literals, kept in sync only by convention/discipline.
+- **Dispatch and selection are on separate paths.** Dispatching an action runs the _entire_ reducer map, regardless of what any selector is subscribed to. So even if `createFeatureSelector` points at the wrong key, the state still updates correctly under whatever key was actually registered — the write path and read path fail (or succeed) independently.
+- **Real fix for larger codebases:** `createFeature` (Project 6) derives the reducer registration and the selector from one shared definition, so there's only one place the key is written down at all.
+
+---
+
+## 8. Interview question — "UI not updating, but DevTools shows correct state"
+
+> _"You're debugging a reported issue: a component displaying data from the NgRx store isn't updating, even though the user's action should change that data. Redux DevTools shows the action being dispatched and the state tree updating correctly. What are the possible causes, and how would you narrow it down?"_
+
+**Starting point:** DevTools confirming the action dispatched _and_ the state tree updated correctly means the **write path is fine** — reducer ran, state genuinely changed. The problem is isolated entirely to how that state reaches the UI (the read path). Narrowing it down means walking the read path piece by piece:
+
+1. **Feature key mismatch** — `createFeatureSelector('wrongKey')` reads a state slice that doesn't exist, or isn't the one that actually changed. Returns `undefined`; downstream destructuring throws.
+2. **Broken selector memoization due to in-place mutation** — if a reducer mutates state instead of returning a new reference (`state.count++` instead of `{...state, count: state.count + 1}`), the _value_ is different but the object _reference_ is unchanged. `createSelector` compares inputs by reference, so it assumes nothing changed, never recomputes, and the component never re-renders — even though DevTools shows the new value (DevTools reads the raw state tree, not through memoized selectors).
+3. **Broken/missing subscription in the component** — e.g., using `select()` but forgetting the `async` pipe, or capturing an `Observable` reference without ever subscribing, or doing a one-time `.subscribe()` in `ngOnInit` and storing the result in a plain field instead of staying reactive.
+4. **Change detection issue** — an `OnPush` component receiving an update from outside Angular's zone, or misusing `selectSignal` such that the signal read isn't tracked as a dependency where it's used.
+5. **Wrong selector used** — a copy-paste error importing/using a different, similarly-named selector than the one actually meant.
+
+**Debugging method:** always start by confirming which side is broken — write or read. DevTools showing correct state changes but a stale UI is the tell that it's specifically a _read-path_ problem (selector, subscription, or change detection), not a reducer bug. Only after isolating to the read path do you drill into which of causes 1–5 applies (check the feature key strings match, check whether the reducer mutates in place, check the template's subscription mechanism, check change detection strategy, check the actual selector imported).
+
+---
+
+## Mastery snapshot (end of Project 1)
+
+| Concept                                          | Level                                                                             |
+| ------------------------------------------------ | --------------------------------------------------------------------------------- |
+| Store setup (`provideStore`, `ActionReducerMap`) | 4/5                                                                               |
+| Actions (`createActionGroup`, naming, props)     | 4/5                                                                               |
+| Reducers (immutability, purity)                  | 4/5                                                                               |
+| Selectors + memoization (conceptual)             | 3/5 — understands _why_, hasn't yet seen a case where memoization visibly matters |
+| Feature slice cohesion / state shape design      | 4/5                                                                               |
+| `selectSignal` vs. `select`+async tradeoffs      | 3/5                                                                               |
+| Debugging (write-path vs. read-path isolation)   | 4/5                                                                               |
+
+_(Full cumulative mastery tracking lives in the Progress Summary, produced every 3 completed projects — this table is scoped to Project 1 only.)_
