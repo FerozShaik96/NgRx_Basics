@@ -1,5 +1,10 @@
 <h1>Here is my Small Store counter functionality</h1>
 <div>
+  <mat-slide-toggle color="primary" [checked]="theme()" (change)="onThemeToggle()">
+    Dark Mode
+  </mat-slide-toggle>
+</div>
+<div>
   <app-my-counter></app-my-counter>
 
 </div>
